@@ -1,0 +1,2 @@
+com.srj.videotoimage.core.ai.NoOpFrameAnalyzer
+com.srj.videotoimage.core.ai.djl.DjlFrameAnalyzer

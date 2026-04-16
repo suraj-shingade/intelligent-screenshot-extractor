@@ -1,0 +1,76 @@
+# ──────────────────────────────────────────────────────────────
+# Intelligent Screenshot Extractor - .gitignore
+# ──────────────────────────────────────────────────────────────
+
+# ── Maven build output ──
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ── IDE: IntelliJ IDEA ──
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# ── IDE: Eclipse ──
+.classpath
+.project
+.settings/
+bin/
+
+# ── IDE: NetBeans ──
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# ── IDE: VS Code ──
+.vscode/
+
+# ── OS-generated files ──
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.swp
+*.swo
+*~
+
+# ── Java ──
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# ── Logs ──
+*.log
+logs/
+
+# ── Maven wrapper ──
+.mvn/wrapper/maven-wrapper.jar
+
+# ── Environment & secrets ──
+.env
+.env.*
+*.pem
+*.key
+
+# ── Native build artifacts ──
+*.dll
+*.so
+*.dylib
+
+# ── Package files ──
+*.dmg
+*.exe
+*.msi
+*.deb
+*.rpm
