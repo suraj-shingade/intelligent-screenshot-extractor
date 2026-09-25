@@ -36,6 +36,8 @@ public record ExtractionRequest(
         SamplingStrategy samplingStrategy,
         int intervalFrames,
         Duration intervalSeconds,
+        double sceneChangeThreshold,
+        Duration sceneChangeMinInterval,
         UniquenessPreset uniquenessPreset,
         int uniquenessWindowSize,
         int maxFramesPerJob,
@@ -49,6 +51,7 @@ public record ExtractionRequest(
         Objects.requireNonNull(outputFormat, "outputFormat");
         Objects.requireNonNull(samplingStrategy, "samplingStrategy");
         Objects.requireNonNull(intervalSeconds, "intervalSeconds");
+        Objects.requireNonNull(sceneChangeMinInterval, "sceneChangeMinInterval");
         Objects.requireNonNull(uniquenessPreset, "uniquenessPreset");
         enabledAnalyzerNames = List.copyOf(
                 Objects.requireNonNullElse(enabledAnalyzerNames, List.of()));
@@ -64,6 +67,12 @@ public record ExtractionRequest(
         }
         if (intervalSeconds.isNegative() || intervalSeconds.isZero()) {
             throw new IllegalArgumentException("intervalSeconds must be > 0");
+        }
+        if (sceneChangeThreshold < 0d || sceneChangeThreshold > 1d) {
+            throw new IllegalArgumentException("sceneChangeThreshold must be in [0,1]");
+        }
+        if (sceneChangeMinInterval.isNegative()) {
+            throw new IllegalArgumentException("sceneChangeMinInterval must be >= 0");
         }
         if (uniquenessWindowSize <= 0) {
             throw new IllegalArgumentException("uniquenessWindowSize must be > 0");
@@ -89,6 +98,8 @@ public record ExtractionRequest(
         private SamplingStrategy samplingStrategy = SamplingStrategy.INTERVAL_SECONDS;
         private int intervalFrames = 30;
         private Duration intervalSeconds = Duration.ofSeconds(1);
+        private double sceneChangeThreshold = 0.12d;
+        private Duration sceneChangeMinInterval = Duration.ofMillis(500);
         private UniquenessPreset uniquenessPreset = UniquenessPreset.BALANCED;
         private int uniquenessWindowSize = 32;
         private int maxFramesPerJob = 0;
@@ -105,6 +116,8 @@ public record ExtractionRequest(
         public Builder samplingStrategy(SamplingStrategy s) { this.samplingStrategy = s; return this; }
         public Builder intervalFrames(int n) { this.intervalFrames = n; return this; }
         public Builder intervalSeconds(Duration d) { this.intervalSeconds = d; return this; }
+        public Builder sceneChangeThreshold(double t) { this.sceneChangeThreshold = t; return this; }
+        public Builder sceneChangeMinInterval(Duration d) { this.sceneChangeMinInterval = d; return this; }
         public Builder uniquenessPreset(UniquenessPreset p) { this.uniquenessPreset = p; return this; }
         public Builder uniquenessWindowSize(int size) { this.uniquenessWindowSize = size; return this; }
         public Builder maxFramesPerJob(int n) { this.maxFramesPerJob = n; return this; }
@@ -116,6 +129,7 @@ public record ExtractionRequest(
                     source, outputDirectory, outputFormat, jpegQuality,
                     resizeEnabled, maxWidth, maxHeight,
                     samplingStrategy, intervalFrames, intervalSeconds,
+                    sceneChangeThreshold, sceneChangeMinInterval,
                     uniquenessPreset, uniquenessWindowSize,
                     maxFramesPerJob, writeMetadataSidecar, enabledAnalyzerNames);
         }

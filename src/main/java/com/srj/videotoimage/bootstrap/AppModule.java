@@ -17,6 +17,7 @@ import com.srj.videotoimage.config.AppConfig;
 import com.srj.videotoimage.core.ai.FrameAnalyzer;
 import com.srj.videotoimage.core.dedup.ImageHasher;
 import com.srj.videotoimage.core.dedup.PerceptualHasher;
+import com.srj.videotoimage.core.dedup.SsimConfig;
 import com.srj.videotoimage.core.dedup.UniquenessConfig;
 import com.srj.videotoimage.infrastructure.extractor.FrameExtractorFactory;
 import com.srj.videotoimage.infrastructure.extractor.JavaCvFrameExtractorFactory;
@@ -68,5 +69,11 @@ public final class AppModule extends AbstractModule {
     @Singleton
     UniquenessConfig uniquenessConfig(AppConfig appConfig) {
         return appConfig.uniquenessConfig();
+    }
+
+    @Provides
+    @Singleton
+    SsimConfig ssimConfig(AppConfig appConfig) {
+        return appConfig.ssimConfig();
     }
 }

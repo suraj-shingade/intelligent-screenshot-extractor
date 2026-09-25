@@ -10,6 +10,7 @@ package com.srj.videotoimage.config;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
+import com.srj.videotoimage.core.dedup.SsimConfig;
 import com.srj.videotoimage.core.dedup.UniquenessConfig;
 import com.srj.videotoimage.core.model.OutputFormat;
 import com.srj.videotoimage.core.model.UniquenessPreset;
@@ -62,6 +63,20 @@ public final class AppConfig {
         return Duration.ofMillis((long) (seconds * 1000));
     }
 
+    /**
+     * Normalised mean-luma-difference threshold above which the scene-change
+     * sampler reports a cut.
+     */
+    public double sceneChangeThreshold() {
+        return config.getDouble("extraction.sampling.sceneChange.threshold");
+    }
+
+    /** Shortest gap the scene-change sampler allows between two reported cuts. */
+    public Duration sceneChangeMinInterval() {
+        double seconds = config.getDouble("extraction.sampling.sceneChange.minIntervalSeconds");
+        return Duration.ofMillis((long) (seconds * 1000));
+    }
+
     public Path defaultOutputDirectory() {
         return Paths.get(config.getString("extraction.output.directory"));
     }
@@ -107,6 +122,29 @@ public final class AppConfig {
             map.put(p, t.getInt(p.name()));
         }
         return new UniquenessConfig(map);
+    }
+
+    /**
+     * Settings for the secondary SSIM check applied to borderline frames.
+     */
+    public SsimConfig ssimConfig() {
+        Config s = config.getConfig("extraction.uniqueness.ssim");
+        return new SsimConfig(
+                s.getBoolean("enabled"),
+                s.getInt("borderlineBand"),
+                s.getDouble("threshold"));
+    }
+
+    // -- AI -------------------------------------------------------------------
+
+    /** Whether the DJL-backed analyzer should run. */
+    public boolean djlEnabled() {
+        return config.getBoolean("ai.djl.enabled");
+    }
+
+    /** Name of the {@code ModelProvider} the DJL analyzer should load. */
+    public String djlModelProvider() {
+        return config.getString("ai.djl.modelProvider");
     }
 
     // -- Concurrency ----------------------------------------------------------

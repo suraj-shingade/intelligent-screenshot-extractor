@@ -29,6 +29,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import java.awt.Dimension;
 import java.nio.file.Path;
@@ -59,6 +60,13 @@ public final class ConfigPanel extends JPanel {
     private final JSlider uniquenessSlider = new JSlider(0, 2);
     private final JSpinner maxFrames;
     private final JList<String> analyzerList = new JList<>();
+
+    /**
+     * Analyzer names positionally matching {@link #analyzerList}'s rows. The
+     * list shows a decorated label, so the name the pipeline needs is kept here
+     * rather than parsed back out of display text.
+     */
+    private final List<String> analyzerNames = new ArrayList<>();
 
     public ConfigPanel(AppConfig config, Set<FrameAnalyzer> analyzers) {
         super(new MigLayout("insets 8, wrap 2, fillx", "[right][grow, fill]"));
@@ -124,18 +132,53 @@ public final class ConfigPanel extends JPanel {
 
         // Analyzers
         add(new JLabel(Messages.get("config.ai.title")));
+        add(buildAnalyzerChooser(analyzers), "grow");
+    }
+
+    /**
+     * Multi-select list of discovered analyzers. Analyzers already switched on
+     * in configuration start selected, so the common case needs no clicks, and
+     * the selection is what gets attached to each job.
+     */
+    private JScrollPane buildAnalyzerChooser(Set<FrameAnalyzer> analyzers) {
         DefaultListModel<String> listModel = new DefaultListModel<>();
+        List<Integer> preselected = new ArrayList<>();
+
         if (analyzers == null || analyzers.isEmpty()) {
             listModel.addElement(Messages.get("config.ai.noneDiscovered"));
+            analyzerList.setEnabled(false);
         } else {
             for (FrameAnalyzer a : analyzers) {
-                listModel.addElement(a.name() + (a.isEnabled() ? "" : "  (disabled)"));
+                if (a.isEnabled()) {
+                    preselected.add(analyzerNames.size());
+                }
+                listModel.addElement(a.name()
+                        + (a.isEnabled() ? "" : "  " + Messages.get("config.ai.disabledSuffix")));
+                analyzerNames.add(a.name());
             }
         }
         analyzerList.setModel(listModel);
+        analyzerList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        analyzerList.setToolTipText(Messages.get("config.ai.hint"));
+        if (!preselected.isEmpty()) {
+            analyzerList.setSelectedIndices(
+                    preselected.stream().mapToInt(Integer::intValue).toArray());
+        }
+
         JScrollPane scroll = new JScrollPane(analyzerList);
         scroll.setPreferredSize(new Dimension(0, 80));
-        add(scroll, "grow");
+        return scroll;
+    }
+
+    /** Names of the analyzers the user has selected, in list order. */
+    public List<String> selectedAnalyzerNames() {
+        List<String> selected = new ArrayList<>();
+        for (int index : analyzerList.getSelectedIndices()) {
+            if (index >= 0 && index < analyzerNames.size()) {
+                selected.add(analyzerNames.get(index));
+            }
+        }
+        return List.copyOf(selected);
     }
 
     private void pickDirectory() {
@@ -164,18 +207,13 @@ public final class ConfigPanel extends JPanel {
                 .uniquenessPreset(preset)
                 .uniquenessWindowSize(config.uniquenessWindowSize())
                 .maxFramesPerJob((Integer) maxFrames.getValue())
+                .sceneChangeThreshold(config.sceneChangeThreshold())
+                .sceneChangeMinInterval(config.sceneChangeMinInterval())
                 .writeMetadataSidecar(config.writeMetadataSidecar())
-                .enabledAnalyzerNames(List.of());
+                .enabledAnalyzerNames(selectedAnalyzerNames());
     }
 
     public Path currentOutputDirectory() {
         return Paths.get(outputDir.getText());
-    }
-
-    @SuppressWarnings("unused")
-    private static List<String> toList(List<?> in) {
-        List<String> out = new ArrayList<>(in.size());
-        for (Object o : in) out.add(o.toString());
-        return out;
     }
 }

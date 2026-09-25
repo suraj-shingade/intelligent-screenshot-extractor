@@ -15,6 +15,7 @@ import com.srj.videotoimage.config.AppConfig;
 import com.srj.videotoimage.core.ai.FrameAnalyzer;
 import com.srj.videotoimage.core.model.VideoSource;
 import com.srj.videotoimage.event.ProgressEvent;
+import com.srj.videotoimage.ui.components.VideoDropTarget;
 import com.srj.videotoimage.ui.dialog.AboutDialog;
 import com.srj.videotoimage.ui.i18n.Messages;
 import com.srj.videotoimage.ui.model.ThumbnailListModel;
@@ -37,7 +38,6 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JToolBar;
 import javax.swing.SwingUtilities;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Desktop;
 import java.awt.Image;
@@ -46,7 +46,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,6 +100,7 @@ public final class MainFrame extends JFrame {
 
         queueService.addListener(this::onProgressEvent);
         queuePanel.addSelectionListener(e -> refreshGalleryForSelection());
+        installDropTarget();
 
         setSize(1440, 900);
         setLocationRelativeTo(null);
@@ -181,12 +181,23 @@ public final class MainFrame extends JFrame {
 
     // -- Actions --------------------------------------------------------------
 
+    /**
+     * Accept video files dropped anywhere on the window. Dropping a clip onto
+     * the app is the shortest path from "I have this video" to "extract it", so
+     * it enqueues exactly as the Add Videos dialog does.
+     */
+    private void installDropTarget() {
+        VideoDropTarget handler = new VideoDropTarget(this::enqueue);
+        setTransferHandler(handler);
+        getRootPane().setTransferHandler(handler);
+        queuePanel.setTransferHandler(handler);
+        galleryPanel.setTransferHandler(handler);
+    }
+
     private void addVideos(ActionEvent ignored) {
         JFileChooser chooser = new JFileChooser();
         chooser.setMultiSelectionEnabled(true);
-        chooser.setFileFilter(new FileNameExtensionFilter(
-                Messages.get("filechooser.videoFilter"),
-                "mp4", "mov", "mkv", "avi", "webm", "m4v"));
+        chooser.setFileFilter(VideoFiles.chooserFilter());
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
@@ -194,7 +205,15 @@ public final class MainFrame extends JFrame {
         if (selected == null || selected.length == 0) {
             return;
         }
-        Arrays.stream(selected).forEach(this::submitJob);
+        enqueue(List.of(selected));
+    }
+
+    /** Submit one job per file and refresh the queue view once, not per file. */
+    private void enqueue(List<File> files) {
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        files.forEach(this::submitJob);
         refreshTable();
     }
 
