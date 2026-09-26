@@ -87,6 +87,36 @@ class ModelProviderMetadataTest {
     }
 
     @Test
+    void classifierStripsTheWordNetSynsetIdFromImageNetLabels() {
+        ImageClassificationModelProvider provider =
+                new ImageClassificationModelProvider(TOP_THREE_ABOVE_HALF);
+
+        // Exactly the shape the real ResNet weights return. A tag of
+        // "n06874185 traffic light" is useless for searching.
+        FrameMetadata metadata = provider.toMetadata(classifications(
+                List.of("n06874185 traffic light", "n02123045 tabby, tabby cat"),
+                List.of(0.91d, 0.72d)));
+
+        assertThat(metadata.tags()).containsExactly("traffic light", "tabby");
+        assertThat(metadata.analyzerData().get(ImageClassificationModelProvider.NAME).toString())
+                .doesNotContain("n06874185");
+    }
+
+    @Test
+    void classifierLeavesLabelsWithoutASynsetIdAlone() {
+        ImageClassificationModelProvider provider =
+                new ImageClassificationModelProvider(TOP_THREE_ABOVE_HALF);
+
+        // "n95 mask" opens with an n and digits but is not a synset id, which is
+        // why the pattern insists on exactly eight of them.
+        FrameMetadata metadata = provider.toMetadata(classifications(
+                List.of("nematode", "n95 mask"),
+                List.of(0.9d, 0.8d)));
+
+        assertThat(metadata.tags()).containsExactly("nematode", "n95 mask");
+    }
+
+    @Test
     void classifierRecordsConfidencesAlongsideTheTags() {
         ImageClassificationModelProvider provider =
                 new ImageClassificationModelProvider(TOP_THREE_ABOVE_HALF);

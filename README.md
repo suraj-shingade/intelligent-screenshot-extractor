@@ -128,8 +128,12 @@ infrastructure (adapters)
 | Requirement | Version |
 |---|---|
 | JDK | **22** or higher |
-| Maven | **3.9+** |
+| Maven | Not required -- use the bundled wrapper (`./mvnw`) |
 | FFmpeg | Bundled via `javacv-platform` (no manual install) |
+
+The repository ships a Maven Wrapper, so `./mvnw` (or `mvnw.cmd` on Windows)
+downloads the pinned Maven version on first use. Every command below works with
+a plain `mvn` too, if you already have one installed.
 
 ---
 
@@ -145,21 +149,20 @@ cd intelligent-screenshot-extractor
 ### Build & Test
 
 ```bash
-# Compile and run all tests (unit + integration)
-mvn clean verify
+# Compile and run all tests
+./mvnw clean verify
 ```
 
 ### Run the Application
 
 ```bash
-# Run directly from Maven
-mvn exec:java
+./mvnw exec:java
 ```
 
 ### Build a Fat JAR
 
 ```bash
-mvn -Pfatjar package
+./mvnw -Pfatjar package
 java -jar target/video-to-image-1.0.0-SNAPSHOT-all.jar
 ```
 
@@ -167,7 +170,7 @@ java -jar target/video-to-image-1.0.0-SNAPSHOT-all.jar
 
 ```bash
 # Produces .dmg (macOS) / .exe (Windows) / .deb (Linux)
-mvn -Pjpackage install
+./mvnw -Pjpackage install
 ```
 
 ---
@@ -259,6 +262,8 @@ src/main/java/com/srj/videotoimage/
     model/                             UI table/list models
     theme/                             FlatLaf ThemeManager
     i18n/                              Internationalisation (Messages)
+
+mvnw, mvnw.cmd, .mvn/wrapper/          Maven Wrapper (pins the build tool)
 
 src/main/resources/
   application.conf                     HOCON configuration

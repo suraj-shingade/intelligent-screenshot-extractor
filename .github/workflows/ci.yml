@@ -29,8 +29,12 @@ jobs:
           distribution: temurin
           cache: maven
 
+      # bash is present on every runner, including Windows, so the same
+      # wrapper script runs on all three platforms.
       - name: Build and run tests
-        run: mvn -B clean verify
+        run: ./mvnw -B clean verify
+        shell: bash
 
       - name: Build fat JAR
-        run: mvn -B -Pfatjar package -DskipTests
+        run: ./mvnw -B -Pfatjar package -DskipTests
+        shell: bash

@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Real, working AI analysis: a ResNet image classifier from the DJL model zoo.
@@ -44,6 +45,16 @@ import java.util.Map;
 public final class ImageClassificationModelProvider extends AbstractZooModelProvider<Classifications> {
 
     public static final String NAME = "resnet";
+
+    /**
+     * Leading WordNet synset id on an ImageNet label, such as the
+     * {@code "n02123045 "} in {@code "n02123045 tabby, tabby cat"}.
+     *
+     * <p>Synset ids are always {@code n} followed by exactly eight digits. Being
+     * that specific matters: a looser pattern would eat the start of a genuine
+     * label such as {@code "n95 mask"}.</p>
+     */
+    private static final Pattern SYNSET_ID_PREFIX = Pattern.compile("^n\\d{8}\\s+");
 
     /** Zero-arg constructor required by ServiceLoader. */
     public ImageClassificationModelProvider() {
@@ -100,16 +111,20 @@ public final class ImageClassificationModelProvider extends AbstractZooModelProv
     }
 
     /**
-     * ImageNet class names arrive as comma-separated synonym lists, for example
-     * {@code "tabby, tabby cat"}. Keep the first synonym: it reads as a tag,
-     * and the rest is noise in a sidecar.
+     * ImageNet class names arrive with a WordNet synset id in front and a list of
+     * synonyms behind, for example {@code "n02123045 tabby, tabby cat"}. Neither
+     * belongs in a searchable tag, so both are stripped and the first synonym
+     * kept: {@code "tabby"}.
      */
     private static String normaliseLabel(String className) {
         if (className == null) {
             return "";
         }
-        int comma = className.indexOf(',');
-        String label = comma >= 0 ? className.substring(0, comma) : className;
+        String label = SYNSET_ID_PREFIX.matcher(className).replaceFirst("");
+        int comma = label.indexOf(',');
+        if (comma >= 0) {
+            label = label.substring(0, comma);
+        }
         return label.trim();
     }
 }

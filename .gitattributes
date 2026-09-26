@@ -1,0 +1,5 @@
+# The Maven Wrapper scripts are executed directly by CI on all three platforms,
+# so their line endings are not a matter of taste. A CRLF mvnw fails on Linux and
+# macOS with "bad interpreter: /bin/sh^M", and a LF .cmd misbehaves on Windows.
+mvnw        text eol=lf
+mvnw.cmd    text eol=crlf
