@@ -10,6 +10,7 @@ package com.srj.videotoimage.application;
 
 import com.srj.videotoimage.core.ai.FrameAnalyzer;
 import com.srj.videotoimage.core.dedup.ImageHasher;
+import com.srj.videotoimage.core.dedup.SsimConfig;
 import com.srj.videotoimage.core.dedup.UniquenessConfig;
 import com.srj.videotoimage.core.pipeline.FrameStage;
 import com.srj.videotoimage.core.pipeline.PipelineExecutor;
@@ -36,6 +37,7 @@ public final class PipelineFactory {
 
     private final ImageHasher hasher;
     private final UniquenessConfig uniquenessConfig;
+    private final SsimConfig ssimConfig;
     private final Set<FrameAnalyzer> analyzers;
     private final FrameWriter frameWriter;
     private final MetadataWriter metadataWriter;
@@ -43,11 +45,13 @@ public final class PipelineFactory {
     @Inject
     public PipelineFactory(ImageHasher hasher,
                            UniquenessConfig uniquenessConfig,
+                           SsimConfig ssimConfig,
                            Set<FrameAnalyzer> analyzers,
                            FrameWriter frameWriter,
                            MetadataWriter metadataWriter) {
         this.hasher = hasher;
         this.uniquenessConfig = uniquenessConfig;
+        this.ssimConfig = ssimConfig;
         this.analyzers = analyzers;
         this.frameWriter = frameWriter;
         this.metadataWriter = metadataWriter;
@@ -57,7 +61,7 @@ public final class PipelineFactory {
         List<FrameStage> stages = List.of(
                 new SamplingStage(),
                 new HashingStage(hasher),
-                new UniquenessStage(uniquenessConfig),
+                new UniquenessStage(uniquenessConfig, ssimConfig),
                 new AnalysisStage(List.copyOf(analyzers)),
                 new PersistenceStage(frameWriter, metadataWriter)
         );

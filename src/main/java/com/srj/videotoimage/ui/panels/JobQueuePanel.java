@@ -47,7 +47,13 @@ public final class JobQueuePanel extends JPanel {
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
         table.setComponentPopupMenu(buildPopupMenu());
-        add(new JScrollPane(table), "grow");
+        table.setToolTipText(Messages.get("queue.dropHint"));
+
+        JScrollPane scroll = new JScrollPane(table);
+        // The viewport, not just the table rows, should accept a drop onto an
+        // empty queue -- which is exactly when the hint matters most.
+        scroll.getViewport().setToolTipText(Messages.get("queue.dropHint"));
+        add(scroll, "grow");
     }
 
     public JobTableModel tableModel() {

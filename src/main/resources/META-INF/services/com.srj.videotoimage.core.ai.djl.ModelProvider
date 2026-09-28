@@ -1,1 +1,3 @@
+com.srj.videotoimage.core.ai.djl.ImageClassificationModelProvider
+com.srj.videotoimage.core.ai.djl.ObjectDetectionModelProvider
 com.srj.videotoimage.core.ai.djl.PlaceholderModelProvider

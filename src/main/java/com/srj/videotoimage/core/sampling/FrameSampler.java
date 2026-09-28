@@ -14,9 +14,11 @@ import com.srj.videotoimage.core.model.Frame;
 import java.time.Duration;
 
 /**
- * Decides whether a decoded frame should enter the pipeline based on the
- * configured {@link SamplingStrategy}. Scene-change sampling is deferred to
- * a later iteration; today it degrades to per-second sampling.
+ * Decides whether a decoded frame should enter the pipeline, based on the
+ * configured {@link SamplingStrategy}. Cheap rejections here save the whole
+ * rest of the pipeline from running.
+ *
+ * <p>Confined to a single job's frame sequence; not thread-safe.</p>
  *
  * @author Suraj Shingade
  */
@@ -25,6 +27,8 @@ public final class FrameSampler {
     private final SamplingStrategy strategy;
     private final int intervalFrames;
     private final Duration intervalSeconds;
+    private final SceneChangeDetector sceneDetector;
+
     private Duration lastAcceptedTs;
     private boolean firstTimeBasedFrame = true;
     private long framesSinceLastAccepted;
@@ -34,6 +38,11 @@ public final class FrameSampler {
         this.strategy = request.samplingStrategy();
         this.intervalFrames = request.intervalFrames();
         this.intervalSeconds = request.intervalSeconds();
+        this.sceneDetector = strategy == SamplingStrategy.SCENE_CHANGE
+                ? new SceneChangeDetector(
+                        request.sceneChangeThreshold(),
+                        request.sceneChangeMinInterval())
+                : null;
     }
 
     public boolean shouldProcess(Frame frame) {
@@ -51,7 +60,7 @@ public final class FrameSampler {
                 }
                 yield false;
             }
-            case INTERVAL_SECONDS, SCENE_CHANGE -> {
+            case INTERVAL_SECONDS -> {
                 Duration ts = frame.timestamp();
                 if (firstTimeBasedFrame) {
                     firstTimeBasedFrame = false;
@@ -64,6 +73,16 @@ public final class FrameSampler {
                 }
                 yield false;
             }
+            case SCENE_CHANGE -> sceneDetector.isSceneChange(frame.image(), frame.timestamp());
         };
+    }
+
+    /**
+     * Content score of the frame most recently examined by the scene-change
+     * detector, or a negative value under any other strategy. Exposed for
+     * diagnostics and threshold tuning.
+     */
+    public double lastSceneScore() {
+        return sceneDetector == null ? -1d : sceneDetector.lastScore();
     }
 }

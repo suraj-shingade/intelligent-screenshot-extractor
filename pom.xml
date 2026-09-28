@@ -79,6 +79,19 @@
         <exec.maven.plugin.version>3.3.0</exec.maven.plugin.version>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keeps every ai.djl.* artifact on a single, consistent version. -->
+            <dependency>
+                <groupId>ai.djl</groupId>
+                <artifactId>bom</artifactId>
+                <version>${djl.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Video decoding: JavaCV wraps FFmpeg + OpenCV -->
         <dependency>
@@ -161,11 +174,25 @@
             <version>${commons.lang3.version}</version>
         </dependency>
 
-        <!-- Deep Java Library: AI skeleton (no models shipped) -->
+        <!--
+          Deep Java Library. `api` is the inference SPI the providers compile
+          against; the PyTorch engine and model zoo supply the runtime and the
+          downloadable weights. Model files are NOT bundled: the zoo fetches
+          them on first use and caches them per user, which is why AI analysis
+          ships disabled (see ai.djl.enabled in application.conf).
+        -->
         <dependency>
             <groupId>ai.djl</groupId>
             <artifactId>api</artifactId>
-            <version>${djl.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ai.djl.pytorch</groupId>
+            <artifactId>pytorch-model-zoo</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ai.djl.pytorch</groupId>
+            <artifactId>pytorch-engine</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Test scope -->

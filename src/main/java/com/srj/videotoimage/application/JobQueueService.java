@@ -114,6 +114,17 @@ public final class JobQueueService implements AutoCloseable {
         if (future != null) {
             future.cancel(false);
         }
+        ExtractionJob job = findById(jobId);
+        // A job cancelled before a worker picked it up is pulled straight out of
+        // the executor queue, so nothing will ever run to mark it finished. Left
+        // alone it would sit at QUEUED forever -- visible to the user as a job
+        // that will not start and that clearQueue() refuses to remove. The
+        // compare-and-set keeps this from stamping on a worker that has just
+        // started; in that case the worker sees the cancel flag and stops itself.
+        if (job != null && job.transitionIf(JobStatus.QUEUED, JobStatus.CANCELLED)) {
+            log.info("Job {} cancelled before it started", jobId);
+            fanOut(ProgressEvent.status(jobId, JobStatus.CANCELLED));
+        }
     }
 
     public void pauseAll()  { jobs.forEach(j -> pause(j.id())); }

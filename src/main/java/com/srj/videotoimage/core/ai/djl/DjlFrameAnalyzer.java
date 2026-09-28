@@ -18,30 +18,35 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ServiceLoader;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * {@link FrameAnalyzer} backed by the Deep Java Library (DJL).
  *
- * <p>This is a <em>skeleton</em>: it wires SPI discovery and configuration
- * plumbing, but ships with the {@link PlaceholderModelProvider} which
- * returns empty metadata. To plug in a real model (e.g., ResNet, YOLOv5):</p>
+ * <p>The analyzer itself only chooses and hosts a {@link ModelProvider}; the
+ * provider owns the model and the inference. Three ship in the box:</p>
  *
- * <ol>
- *   <li>Implement {@link ModelProvider} loading a DJL {@code ZooModel}.</li>
- *   <li>Register it under
- *       {@code META-INF/services/com.srj.videotoimage.core.ai.djl.ModelProvider}.</li>
- *   <li>Set {@code ai.djl.modelProvider = <your-name>} in
- *       {@code application.conf} and {@code ai.djl.enabled = true}.</li>
- * </ol>
+ * <ul>
+ *   <li>{@code resnet} -- image classification, writes tags
+ *       ({@link ImageClassificationModelProvider})</li>
+ *   <li>{@code ssd} -- object detection, writes labelled bounding boxes
+ *       ({@link ObjectDetectionModelProvider})</li>
+ *   <li>{@code placeholder} -- loads nothing, returns empty metadata
+ *       ({@link PlaceholderModelProvider})</li>
+ * </ul>
  *
- * <p>The analyzer is default-disabled so enabling DJL is always an explicit
- * user choice -- no surprise model downloads.</p>
+ * <p>Select one with {@code ai.djl.modelProvider} and switch the analyzer on
+ * with {@code ai.djl.enabled = true}. Adding your own means implementing
+ * {@link ModelProvider}, registering it under
+ * {@code META-INF/services/com.srj.videotoimage.core.ai.djl.ModelProvider},
+ * and naming it in configuration -- no changes to the pipeline.</p>
+ *
+ * <p>Default-disabled on purpose: the first analysed frame downloads model
+ * weights, so turning AI on stays an explicit choice rather than a surprise on
+ * someone's connection.</p>
  *
  * @author Suraj Shingade
  */
-public final class DjlFrameAnalyzer implements FrameAnalyzer {
+public final class DjlFrameAnalyzer implements FrameAnalyzer, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(DjlFrameAnalyzer.class);
 
@@ -64,8 +69,14 @@ public final class DjlFrameAnalyzer implements FrameAnalyzer {
         String providerName = config.hasPath(CONFIG_PROVIDER)
                 ? config.getString(CONFIG_PROVIDER)
                 : PlaceholderModelProvider.NAME;
-        this.provider = resolveProvider(providerName);
+        this.provider = loadProvider(providerName);
         log.info("DjlFrameAnalyzer initialised enabled={} provider={}", enabled, provider.name());
+    }
+
+    /** Direct-injection constructor, useful in tests. */
+    public DjlFrameAnalyzer(boolean enabled, ModelProvider provider) {
+        this.enabled = enabled;
+        this.provider = provider;
     }
 
     @Override
@@ -78,6 +89,11 @@ public final class DjlFrameAnalyzer implements FrameAnalyzer {
         return enabled;
     }
 
+    /** The provider this analyzer resolved, for diagnostics and tests. */
+    public ModelProvider provider() {
+        return provider;
+    }
+
     @Override
     public FrameMetadata analyze(Frame frame, AnalysisContext context) {
         if (!enabled) {
@@ -86,17 +102,32 @@ public final class DjlFrameAnalyzer implements FrameAnalyzer {
         return provider.infer(frame);
     }
 
-    private static final ConcurrentMap<String, ModelProvider> CACHE = new ConcurrentHashMap<>();
-
-    private static ModelProvider resolveProvider(String name) {
-        return CACHE.computeIfAbsent(name, DjlFrameAnalyzer::loadProvider);
+    /**
+     * Releases the provider's model and predictors. Called from the
+     * application's shutdown hook; safe to call more than once.
+     */
+    @Override
+    public void close() {
+        try {
+            provider.close();
+        } catch (Exception ex) {
+            log.warn("Provider '{}' failed to close cleanly", provider.name(), ex);
+        }
     }
 
+    /**
+     * Find the registered provider with this name.
+     *
+     * <p>Deliberately not cached across analyzer instances: a provider owns
+     * native model memory and is closed with the analyzer that holds it, so
+     * sharing one between instances would let a shutdown in one place break
+     * inference in another.</p>
+     */
     private static ModelProvider loadProvider(String name) {
         ServiceLoader<ModelProvider> loader = ServiceLoader.load(ModelProvider.class);
-        for (ModelProvider p : loader) {
-            if (p.name().equalsIgnoreCase(name)) {
-                return p;
+        for (ModelProvider candidate : loader) {
+            if (candidate.name().equalsIgnoreCase(name)) {
+                return candidate;
             }
         }
         log.warn("No DJL ModelProvider found with name '{}' -- falling back to placeholder", name);

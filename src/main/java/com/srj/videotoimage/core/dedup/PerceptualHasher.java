@@ -8,8 +8,6 @@
 
 package com.srj.videotoimage.core.dedup;
 
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
 /**
@@ -43,7 +41,7 @@ public final class PerceptualHasher implements ImageHasher {
 
     @Override
     public long hash(BufferedImage image) {
-        double[][] grey = toGreyscaleScaled(image);
+        double[][] grey = LumaSampler.sample(image, SCALED_SIZE);
         double[][] dct = dct2d(grey);
 
         double[] lowFreq = new double[HASH_SIDE * HASH_SIDE - 1];
@@ -65,32 +63,6 @@ public final class PerceptualHasher implements ImageHasher {
             }
         }
         return hash;
-    }
-
-    private static double[][] toGreyscaleScaled(BufferedImage src) {
-        BufferedImage scaled = new BufferedImage(SCALED_SIZE, SCALED_SIZE, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = scaled.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.setRenderingHint(RenderingHints.KEY_RENDERING,
-                    RenderingHints.VALUE_RENDER_QUALITY);
-            g.drawImage(src, 0, 0, SCALED_SIZE, SCALED_SIZE, null);
-        } finally {
-            g.dispose();
-        }
-        double[][] grey = new double[SCALED_SIZE][SCALED_SIZE];
-        for (int y = 0; y < SCALED_SIZE; y++) {
-            for (int x = 0; x < SCALED_SIZE; x++) {
-                int rgb = scaled.getRGB(x, y);
-                int r = (rgb >> 16) & 0xff;
-                int gCh = (rgb >> 8) & 0xff;
-                int b = rgb & 0xff;
-                // BT.601 luma
-                grey[y][x] = 0.299d * r + 0.587d * gCh + 0.114d * b;
-            }
-        }
-        return grey;
     }
 
     private static double[][] dct2d(double[][] input) {

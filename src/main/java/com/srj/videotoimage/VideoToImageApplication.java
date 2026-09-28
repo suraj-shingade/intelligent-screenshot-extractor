@@ -14,6 +14,7 @@ import com.google.inject.Injector;
 import com.srj.videotoimage.application.JobQueueService;
 import com.srj.videotoimage.bootstrap.AppModule;
 import com.srj.videotoimage.config.AppConfig;
+import com.srj.videotoimage.core.ai.FrameAnalyzer;
 import com.srj.videotoimage.ui.MainFrame;
 import com.srj.videotoimage.ui.i18n.Messages;
 import com.srj.videotoimage.ui.theme.ThemeManager;
@@ -21,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.SwingUtilities;
+import java.util.Set;
 
 /**
  * Application entry point. Installs the FlatLaf theme, bootstraps Guice,
@@ -61,10 +63,32 @@ public final class VideoToImageApplication {
 
         JobQueueService queueService = injector.getInstance(JobQueueService.class);
         Runtime.getRuntime().addShutdownHook(new Thread(queueService::close, "queue-shutdown"));
+        registerAnalyzerShutdown(injector);
 
         MainFrame frame = injector.getInstance(MainFrame.class);
         frame.startPeriodicRefresh();
         frame.setVisible(true);
+    }
+
+    /**
+     * Analyzers that hold native model memory are closed on exit. The SPI type
+     * is not itself closeable -- most analyzers have nothing to release -- so
+     * the ones that do are found by their {@link AutoCloseable} implementation.
+     */
+    private static void registerAnalyzerShutdown(Injector injector) {
+        Set<FrameAnalyzer> analyzers = injector.getInstance(
+                com.google.inject.Key.get(new com.google.inject.TypeLiteral<Set<FrameAnalyzer>>() { }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            for (FrameAnalyzer analyzer : analyzers) {
+                if (analyzer instanceof AutoCloseable closeable) {
+                    try {
+                        closeable.close();
+                    } catch (Exception ex) {
+                        log.warn("Analyzer {} failed to close cleanly", analyzer.name(), ex);
+                    }
+                }
+            }
+        }, "analyzer-shutdown"));
     }
 
     private VideoToImageApplication() {

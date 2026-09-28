@@ -52,6 +52,28 @@ public final class ExtractionJob {
 
     void transitionTo(JobStatus next) {
         status.set(next);
+        recordTimestampsFor(next);
+    }
+
+    /**
+     * Move to {@code next} only if the job is still in {@code expected}.
+     *
+     * <p>Lets a caller claim a transition without racing whoever else might be
+     * driving this job. The queue uses it to finish a job it cancelled before a
+     * worker ever picked it up, without stamping on a worker that has just
+     * started.</p>
+     *
+     * @return {@code true} if this call performed the transition
+     */
+    boolean transitionIf(JobStatus expected, JobStatus next) {
+        if (!status.compareAndSet(expected, next)) {
+            return false;
+        }
+        recordTimestampsFor(next);
+        return true;
+    }
+
+    private void recordTimestampsFor(JobStatus next) {
         if (next == JobStatus.RUNNING && startedAt.get() == null) {
             startedAt.set(Instant.now());
         }
