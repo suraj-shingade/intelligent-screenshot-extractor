@@ -51,7 +51,9 @@ public final class SceneChangeDetector {
 
     /**
      * @param threshold   normalised mean-absolute-luma difference in
-     *                    {@code [0,1]} at or above which a cut is reported
+     *                    {@code [0,1]} at or above which a cut is reported.
+     *                    Zero means "any change at all is a cut"; an unchanged
+     *                    frame is never reported, even then.
      * @param minInterval shortest gap between two reported cuts; pass
      *                    {@link Duration#ZERO} to disable debouncing
      */
@@ -92,7 +94,10 @@ public final class SceneChangeDetector {
         lastScore = LumaSampler.meanAbsoluteDifference(current, previous);
         previous = current;
 
-        if (lastScore < threshold) {
+        // A frame identical to its predecessor is never a cut, whatever the
+        // threshold says. Without this, a threshold of zero would call every
+        // still frame a new scene, since a zero score is not below zero.
+        if (lastScore == 0d || lastScore < threshold) {
             return false;
         }
         if (!minInterval.isZero()

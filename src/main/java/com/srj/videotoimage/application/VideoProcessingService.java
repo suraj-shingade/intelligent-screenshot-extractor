@@ -72,63 +72,19 @@ public final class VideoProcessingService {
 
         MDC.put("jobId", job.id());
         try {
-            job.transitionTo(JobStatus.RUNNING);
-            listener.onEvent(ProgressEvent.status(job.id(), JobStatus.RUNNING));
+            if (!claimForRunning(job, listener, cancelled)) {
+                return;
+            }
 
             ExtractionRequest request = job.request();
             PipelineContext context = new PipelineContext(job);
             PipelineExecutor pipeline = pipelineFactory.buildForJob();
 
-            try (FrameExtractor extractor = extractorFactory.create(request.source())) {
-                extractor.open(request.source());
-                long total = extractor.totalFramesEstimate();
-                if (total > 0) {
-                    job.setTotalFramesEstimate(total);
-                }
-
-                pipeline.onJobStart(context);
-
-                Frame frame;
-                while (!cancelled.get() && (frame = extractor.nextFrame()) != null) {
-                    while (paused.get() && !cancelled.get()) {
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException ex) {
-                            Thread.currentThread().interrupt();
-                            cancelled.set(true);
-                        }
-                    }
-                    if (cancelled.get()) {
-                        break;
-                    }
-
-                    job.incrementScanned();
-                    StageResult result = pipeline.execute(frame, context);
-                    if (result == StageResult.REJECT) {
-                        job.incrementRejected();
-                        listener.onEvent(ProgressEvent.rejected(job.id(),
-                                job.framesScanned(), job.framesAccepted(),
-                                job.framesRejected(), job.totalFramesEstimate()));
-                    } else {
-                        job.incrementAccepted();
-                        Path image = context.attribute(PersistenceStage.LAST_WRITTEN_PATH_ATTR);
-                        listener.onEvent(ProgressEvent.accepted(job.id(),
-                                job.framesScanned(), job.framesAccepted(),
-                                job.framesRejected(), job.totalFramesEstimate(), image));
-                    }
-
-                    int cap = request.maxFramesPerJob();
-                    if (cap > 0 && job.framesAccepted() >= cap) {
-                        log.info("Job {} reached accepted-frames cap={}", job.id(), cap);
-                        break;
-                    }
-                }
-
-                try {
-                    pipeline.onJobEnd(context);
-                } catch (Exception endEx) {
-                    log.warn("Stage onJobEnd raised", endEx);
-                }
+            // A cancel can land between the claim and here. Opening a native
+            // decoder only to close it again is wasted work, so check first.
+            // The frame loop below still covers a cancel arriving later.
+            if (!cancelled.get()) {
+                runPipeline(job, request, context, pipeline, listener, cancelled, paused);
             }
 
             if (cancelled.get()) {
@@ -152,6 +108,105 @@ public final class VideoProcessingService {
             throw new VideoToImageException("Unexpected failure executing job " + job.id(), ex);
         } finally {
             MDC.remove("jobId");
+        }
+    }
+
+    /**
+     * Take ownership of a queued job, or stand down if something else already
+     * settled it.
+     *
+     * <p>{@link JobQueueService#cancel} can finish a job that is still queued, by
+     * moving it straight from QUEUED to CANCELLED. A worker that had already been
+     * handed that job must not then overwrite the terminal state with RUNNING,
+     * announce a start that never happened, open the decoder, or stamp a start
+     * time later than the finish time. Both sides therefore claim the job with a
+     * compare-and-set from QUEUED, and exactly one of them wins.</p>
+     *
+     * @return {@code true} if this worker now owns the job and should run it
+     */
+    private static boolean claimForRunning(ExtractionJob job,
+                                           ProgressListener listener,
+                                           AtomicBoolean cancelled) {
+        if (cancelled.get()) {
+            // Cancelled before it started. Settle it here unless the queue's own
+            // cancel already did, and report it at most once between us.
+            if (job.transitionIf(JobStatus.QUEUED, JobStatus.CANCELLED)) {
+                listener.onEvent(ProgressEvent.status(job.id(), JobStatus.CANCELLED));
+                log.info("Job {} cancelled before it started", job.id());
+            }
+            return false;
+        }
+        if (!job.transitionIf(JobStatus.QUEUED, JobStatus.RUNNING)) {
+            log.info("Job {} was already {} before a worker reached it; not running it",
+                    job.id(), job.status());
+            return false;
+        }
+        listener.onEvent(ProgressEvent.status(job.id(), JobStatus.RUNNING));
+        return true;
+    }
+
+    /**
+     * Pump frames from the decoder through the pipeline until the video ends, the
+     * job is cancelled, or the accepted-frame cap is reached. Leaves the final
+     * status for the caller to record.
+     */
+    private void runPipeline(ExtractionJob job,
+                             ExtractionRequest request,
+                             PipelineContext context,
+                             PipelineExecutor pipeline,
+                             ProgressListener listener,
+                             AtomicBoolean cancelled,
+                             AtomicBoolean paused) throws Exception {
+        try (FrameExtractor extractor = extractorFactory.create(request.source())) {
+            extractor.open(request.source());
+            long total = extractor.totalFramesEstimate();
+            if (total > 0) {
+                job.setTotalFramesEstimate(total);
+            }
+
+            pipeline.onJobStart(context);
+
+            Frame frame;
+            while (!cancelled.get() && (frame = extractor.nextFrame()) != null) {
+                while (paused.get() && !cancelled.get()) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        cancelled.set(true);
+                    }
+                }
+                if (cancelled.get()) {
+                    break;
+                }
+
+                job.incrementScanned();
+                StageResult result = pipeline.execute(frame, context);
+                if (result == StageResult.REJECT) {
+                    job.incrementRejected();
+                    listener.onEvent(ProgressEvent.rejected(job.id(),
+                            job.framesScanned(), job.framesAccepted(),
+                            job.framesRejected(), job.totalFramesEstimate()));
+                } else {
+                    job.incrementAccepted();
+                    Path image = context.attribute(PersistenceStage.LAST_WRITTEN_PATH_ATTR);
+                    listener.onEvent(ProgressEvent.accepted(job.id(),
+                            job.framesScanned(), job.framesAccepted(),
+                            job.framesRejected(), job.totalFramesEstimate(), image));
+                }
+
+                int cap = request.maxFramesPerJob();
+                if (cap > 0 && job.framesAccepted() >= cap) {
+                    log.info("Job {} reached accepted-frames cap={}", job.id(), cap);
+                    break;
+                }
+            }
+
+            try {
+                pipeline.onJobEnd(context);
+            } catch (Exception endEx) {
+                log.warn("Stage onJobEnd raised", endEx);
+            }
         }
     }
 }

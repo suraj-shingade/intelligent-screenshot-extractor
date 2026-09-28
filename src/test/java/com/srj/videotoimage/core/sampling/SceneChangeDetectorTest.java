@@ -135,6 +135,30 @@ class SceneChangeDetectorTest {
     }
 
     @Test
+    void zeroThresholdNeverCallsAnUnchangedFrameACut() {
+        BufferedImage still = TestImages.noise(64, 64, 1L);
+        SceneChangeDetector detector = new SceneChangeDetector(0d, NO_DEBOUNCE);
+
+        detector.isSceneChange(still, atSecond(0));
+
+        assertThat(detector.isSceneChange(still, atSecond(1))).isFalse();
+        assertThat(detector.isSceneChange(still, atSecond(2))).isFalse();
+    }
+
+    @Test
+    void zeroThresholdStillReportsAnyGenuineChange() {
+        BufferedImage shot = TestImages.horizontalGradient(64, 64);
+        SceneChangeDetector detector = new SceneChangeDetector(0d, NO_DEBOUNCE);
+
+        detector.isSceneChange(shot, atSecond(0));
+
+        // A change far too small to cross the default threshold is still a cut
+        // at zero, which is what "maximally sensitive" should mean.
+        assertThat(detector.isSceneChange(
+                TestImages.withNoiseAdded(shot, 0.01d, 7L), atSecond(1))).isTrue();
+    }
+
+    @Test
     void rejectsThresholdOutsideTheUnitRange() {
         assertThatThrownBy(() -> new SceneChangeDetector(-0.1d, NO_DEBOUNCE))
                 .isInstanceOf(IllegalArgumentException.class);

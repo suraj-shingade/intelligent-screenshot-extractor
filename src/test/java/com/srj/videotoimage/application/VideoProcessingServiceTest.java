@@ -178,6 +178,86 @@ class VideoProcessingServiceTest {
     }
 
     @Test
+    void alreadyCancelledJobNeverOpensTheDecoder(@TempDir Path outputDir) throws Exception {
+        FakeFrameExtractor extractor = new FakeFrameExtractor(5, 2);
+        ExtractionJob job = new ExtractionJob(request(outputDir).build());
+
+        serviceFor(extractor).run(job, event -> { },
+                new AtomicBoolean(true), new AtomicBoolean(false));
+
+        assertThat(extractor.wasOpened())
+                .as("a job cancelled before it starts has no reason to touch the video")
+                .isFalse();
+        assertThat(job.startedAt()).isNull();
+    }
+
+    /*
+     * The queued-cancel race, reproduced deterministically. The queue's cancel
+     * settles a still-queued job as CANCELLED with a compare-and-set. A worker
+     * that had already been handed that job then reaches run(). It must stand
+     * down: no RUNNING overwrite, no events, no decoder, and no start time
+     * stamped after the finish time.
+     */
+
+    @Test
+    void workerStandsDownWhenTheQueueCancelledTheJobFirst(@TempDir Path outputDir)
+            throws Exception {
+        FakeFrameExtractor extractor = new FakeFrameExtractor(5, 2);
+        ExtractionJob job = new ExtractionJob(request(outputDir).build());
+        List<ProgressEvent> events = new ArrayList<>();
+
+        // What JobQueueService.cancel does to a job that has not started: set
+        // the flag, then claim the job as CANCELLED.
+        AtomicBoolean cancelled = new AtomicBoolean(true);
+        assertThat(job.transitionIf(JobStatus.QUEUED, JobStatus.CANCELLED)).isTrue();
+
+        serviceFor(extractor).run(job, events::add, cancelled, new AtomicBoolean(false));
+
+        assertThat(job.status()).isEqualTo(JobStatus.CANCELLED);
+        assertThat(events)
+                .as("the queue already announced the cancel; the worker must not repeat it")
+                .isEmpty();
+        assertThat(extractor.wasOpened()).isFalse();
+        assertThat(job.startedAt()).isNull();
+        assertThat(job.completedAt()).isNotNull();
+    }
+
+    @Test
+    void workerNeverRevivesAJobSettledBeforeItsClaim(@TempDir Path outputDir) throws Exception {
+        FakeFrameExtractor extractor = new FakeFrameExtractor(5, 2);
+        ExtractionJob job = new ExtractionJob(request(outputDir).build());
+        List<ProgressEvent> events = new ArrayList<>();
+
+        // The narrowest window: the worker checked the cancel flag and found it
+        // clear, and the job was settled before the worker's own claim. The
+        // claim must lose rather than overwrite the terminal state.
+        assertThat(job.transitionIf(JobStatus.QUEUED, JobStatus.CANCELLED)).isTrue();
+
+        serviceFor(extractor).run(job, events::add,
+                new AtomicBoolean(false), new AtomicBoolean(false));
+
+        assertThat(job.status()).isEqualTo(JobStatus.CANCELLED);
+        assertThat(events).noneMatch(e -> e.status() == JobStatus.RUNNING);
+        assertThat(extractor.wasOpened()).isFalse();
+        assertThat(job.startedAt()).isNull();
+    }
+
+    @Test
+    void onlyOneSideAnnouncesACancelThatBothTried(@TempDir Path outputDir) throws Exception {
+        ExtractionJob job = new ExtractionJob(request(outputDir).build());
+        List<ProgressEvent> events = new ArrayList<>();
+
+        // The worker sees the flag and settles the job itself...
+        serviceFor(new FakeFrameExtractor(2, 2)).run(job, events::add,
+                new AtomicBoolean(true), new AtomicBoolean(false));
+        // ...so a late cancel from the queue finds nothing left to claim.
+        boolean queueWouldAlsoAnnounce = job.transitionIf(JobStatus.QUEUED, JobStatus.CANCELLED);
+
+        assertThat(events).filteredOn(e -> e.status() == JobStatus.CANCELLED).hasSize(1);
+        assertThat(queueWouldAlsoAnnounce).isFalse();
+    }
+
+    @Test
     void reportsProgressForAcceptedAndRejectedFrames(@TempDir Path outputDir) throws Exception {
         ExtractionJob job = new ExtractionJob(request(outputDir).build());
         List<ProgressEvent> events = new ArrayList<>();

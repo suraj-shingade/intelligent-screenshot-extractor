@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Shared plumbing for {@link ModelProvider}s backed by a DJL model zoo entry.
@@ -57,7 +59,16 @@ public abstract class AbstractZooModelProvider<T> implements ModelProvider {
     private final int maxResults;
     private final double minConfidence;
 
+    /** Serialises loading, so two threads never download the same weights. */
     private final Object loadLock = new Object();
+
+    /**
+     * Inference holds the read lock and may run concurrently; publishing a model
+     * and closing the provider hold the write lock. Deliberately separate from
+     * {@link #loadLock} so that closing never waits on a download.
+     */
+    private final ReadWriteLock lifecycle = new ReentrantReadWriteLock();
+
     private final List<Predictor<Image, T>> livePredictors = new CopyOnWriteArrayList<>();
     private final ThreadLocal<Predictor<Image, T>> predictorPerThread = new ThreadLocal<>();
 
@@ -107,12 +118,18 @@ public abstract class AbstractZooModelProvider<T> implements ModelProvider {
         if (closed || loadFailed || frame == null) {
             return FrameMetadata.empty();
         }
-        ZooModel<Image, T> loaded = ensureModel();
-        if (loaded == null) {
+        if (ensureModel() == null) {
             return FrameMetadata.empty();
         }
+        // Many job threads may predict at once; only close() excludes them.
+        lifecycle.readLock().lock();
         try {
-            Predictor<Image, T> predictor = predictorFor(loaded);
+            // Re-read under the lock: close() may have run since ensureModel().
+            ZooModel<Image, T> current = model;
+            if (closed || current == null) {
+                return FrameMetadata.empty();
+            }
+            Predictor<Image, T> predictor = predictorFor(current);
             Image image = ImageFactory.getInstance().fromImage(frame.image());
             T prediction = predictor.predict(image);
             FrameMetadata metadata = toMetadata(prediction);
@@ -121,6 +138,8 @@ public abstract class AbstractZooModelProvider<T> implements ModelProvider {
             log.warn("Model '{}' failed to analyse frame index={} -- recording no metadata",
                     name(), frame.index(), ex);
             return FrameMetadata.empty();
+        } finally {
+            lifecycle.readLock().unlock();
         }
     }
 
@@ -137,10 +156,9 @@ public abstract class AbstractZooModelProvider<T> implements ModelProvider {
                 return null;
             }
             log.info("Loading model for provider '{}'. First use may download weights.", name());
+            ZooModel<Image, T> loaded;
             try {
-                model = loadModel();
-                log.info("Model for provider '{}' ready", name());
-                return model;
+                loaded = loadModel();
             } catch (Exception ex) {
                 loadFailed = true;
                 log.error("Could not load model for provider '{}'. AI analysis is disabled "
@@ -148,7 +166,36 @@ public abstract class AbstractZooModelProvider<T> implements ModelProvider {
                         name(), ex);
                 return null;
             }
+            return publish(loaded);
         }
+    }
+
+    /**
+     * Make a freshly loaded model visible to inference, unless the provider was
+     * closed while it loaded.
+     *
+     * <p>A load can take minutes on first use, and shutdown must not wait for it.
+     * So {@link #close()} never touches {@code loadLock}: it can run to completion
+     * while a download is still in flight, see no model, and return. Without this
+     * check the download would then finish and publish a model that nothing will
+     * ever close. Publishing under the write lock means either close ran first and
+     * the new model is discarded here, or publishing ran first and close sees the
+     * model and releases it. Never neither.</p>
+     */
+    private ZooModel<Image, T> publish(ZooModel<Image, T> loaded) {
+        lifecycle.writeLock().lock();
+        try {
+            if (!closed) {
+                model = loaded;
+                log.info("Model for provider '{}' ready", name());
+                return loaded;
+            }
+        } finally {
+            lifecycle.writeLock().unlock();
+        }
+        log.info("Provider '{}' was closed while its model loaded; discarding it", name());
+        closeQuietly(loaded, "model");
+        return null;
     }
 
     private Predictor<Image, T> predictorFor(ZooModel<Image, T> loaded) {
@@ -161,27 +208,50 @@ public abstract class AbstractZooModelProvider<T> implements ModelProvider {
         return predictor;
     }
 
+    /**
+     * Release the model and every predictor. Safe to call more than once.
+     *
+     * <p>Waits for predictions already in progress to finish, because freeing a
+     * model's native memory under a running prediction is a use-after-free in
+     * native code. It does <em>not</em> wait for a model download in progress;
+     * see {@link #publish} for how a model that finishes loading afterwards is
+     * still released.</p>
+     */
     @Override
     public final void close() {
-        closed = true;
-        for (Predictor<Image, T> predictor : livePredictors) {
-            try {
-                predictor.close();
-            } catch (RuntimeException ex) {
-                log.debug("Predictor for provider '{}' resisted closing", name(), ex);
+        List<Predictor<Image, T>> predictors;
+        ZooModel<Image, T> current;
+
+        lifecycle.writeLock().lock();
+        try {
+            if (closed) {
+                return;
             }
+            closed = true;
+            predictors = List.copyOf(livePredictors);
+            livePredictors.clear();
+            current = model;
+            model = null;
+        } finally {
+            lifecycle.writeLock().unlock();
         }
-        livePredictors.clear();
         predictorPerThread.remove();
 
-        ZooModel<Image, T> current = model;
-        model = null;
+        // Nothing can be predicting now: in-flight work finished before the
+        // write lock was granted, and new work sees `closed` under the read lock.
+        for (Predictor<Image, T> predictor : predictors) {
+            closeQuietly(predictor, "predictor");
+        }
         if (current != null) {
-            try {
-                current.close();
-            } catch (RuntimeException ex) {
-                log.debug("Model for provider '{}' resisted closing", name(), ex);
-            }
+            closeQuietly(current, "model");
+        }
+    }
+
+    private void closeQuietly(AutoCloseable resource, String what) {
+        try {
+            resource.close();
+        } catch (Exception ex) {
+            log.debug("A {} for provider '{}' resisted closing", what, name(), ex);
         }
     }
 

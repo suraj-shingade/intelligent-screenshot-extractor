@@ -70,10 +70,12 @@
 
         <junit.version>5.10.2</junit.version>
         <assertj.version>3.25.3</assertj.version>
-        <mockito.version>5.12.0</mockito.version>
+        <mockito.version>5.24.0</mockito.version>
+        <bytebuddy.version>1.17.7</bytebuddy.version>
 
         <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
         <maven.surefire.version>3.2.5</maven.surefire.version>
+        <maven.dependency.version>3.8.1</maven.dependency.version>
         <maven.failsafe.version>3.2.5</maven.failsafe.version>
         <maven.shade.version>3.5.3</maven.shade.version>
         <exec.maven.plugin.version>3.3.0</exec.maven.plugin.version>
@@ -82,6 +84,22 @@
     <dependencyManagement>
         <dependencies>
             <!-- Keeps every ai.djl.* artifact on a single, consistent version. -->
+            <!--
+              AssertJ and Mockito both depend on Byte Buddy. Maven's nearest-wins
+              rule picked AssertJ's older copy, which cannot read the class files
+              of current JDKs, so Mockito failed to start on Java 25. Pinning one
+              version, the one Mockito is built against, removes the conflict.
+            -->
+            <dependency>
+                <groupId>net.bytebuddy</groupId>
+                <artifactId>byte-buddy</artifactId>
+                <version>${bytebuddy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.bytebuddy</groupId>
+                <artifactId>byte-buddy-agent</artifactId>
+                <version>${bytebuddy.version}</version>
+            </dependency>
             <dependency>
                 <groupId>ai.djl</groupId>
                 <artifactId>bom</artifactId>
@@ -239,12 +257,31 @@
                 </configuration>
             </plugin>
 
+            <!--
+              Exposes each dependency's jar path as a property, which the surefire
+              argLine below uses to load Mockito as a Java agent at JVM start.
+              Mockito otherwise attaches itself at runtime, which current JDKs
+              warn about and a future release will refuse.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>${maven.dependency.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven.surefire.version}</version>
                 <configuration>
-                    <argLine>-Djava.awt.headless=true</argLine>
+                    <argLine>-Djava.awt.headless=true -javaagent:${org.mockito:mockito-core:jar}</argLine>
                 </configuration>
             </plugin>
 
