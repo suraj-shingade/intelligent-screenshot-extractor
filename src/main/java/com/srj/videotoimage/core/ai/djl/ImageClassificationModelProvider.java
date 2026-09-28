@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * Real, working AI analysis: a ResNet image classifier from the DJL model zoo.
@@ -46,15 +45,6 @@ public final class ImageClassificationModelProvider extends AbstractZooModelProv
 
     public static final String NAME = "resnet";
 
-    /**
-     * Leading WordNet synset id on an ImageNet label, such as the
-     * {@code "n02123045 "} in {@code "n02123045 tabby, tabby cat"}.
-     *
-     * <p>Synset ids are always {@code n} followed by exactly eight digits. Being
-     * that specific matters: a looser pattern would eat the start of a genuine
-     * label such as {@code "n95 mask"}.</p>
-     */
-    private static final Pattern SYNSET_ID_PREFIX = Pattern.compile("^n\\d{8}\\s+");
 
     /** Zero-arg constructor required by ServiceLoader. */
     public ImageClassificationModelProvider() {
@@ -97,8 +87,12 @@ public final class ImageClassificationModelProvider extends AbstractZooModelProv
             if (candidate.getProbability() < minConfidence()) {
                 continue;
             }
-            String label = normaliseLabel(candidate.getClassName());
-            if (label.isEmpty()) {
+            String label = ModelLabels.normalise(candidate.getClassName());
+            // Distinct classes can share a first synonym: ImageNet has a "crane"
+            // that is a bird and a "crane" that lifts things. Keep one tag, with
+            // the higher score, which is the first seen since topK sorts
+            // strongest first.
+            if (label.isEmpty() || confidences.containsKey(label)) {
                 continue;
             }
             tags.add(label);
@@ -108,23 +102,5 @@ public final class ImageClassificationModelProvider extends AbstractZooModelProv
             return FrameMetadata.empty();
         }
         return new FrameMetadata(tags, List.of(), List.of(), Map.of(NAME, confidences));
-    }
-
-    /**
-     * ImageNet class names arrive with a WordNet synset id in front and a list of
-     * synonyms behind, for example {@code "n02123045 tabby, tabby cat"}. Neither
-     * belongs in a searchable tag, so both are stripped and the first synonym
-     * kept: {@code "tabby"}.
-     */
-    private static String normaliseLabel(String className) {
-        if (className == null) {
-            return "";
-        }
-        String label = SYNSET_ID_PREFIX.matcher(className).replaceFirst("");
-        int comma = label.indexOf(',');
-        if (comma >= 0) {
-            label = label.substring(0, comma);
-        }
-        return label.trim();
     }
 }

@@ -87,11 +87,10 @@ public final class ObjectDetectionModelProvider extends AbstractZooModelProvider
             if (item.getProbability() < minConfidence()) {
                 continue;
             }
-            String label = item.getClassName();
-            if (label == null || label.isBlank()) {
+            String label = ModelLabels.normalise(item.getClassName());
+            if (label.isEmpty()) {
                 continue;
             }
-            label = label.trim();
 
             Rectangle box = boundsOf(item);
             objects.add(new FrameMetadata.DetectedObject(

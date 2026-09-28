@@ -118,9 +118,12 @@ public final class JobQueueService implements AutoCloseable {
         // A job cancelled before a worker picked it up is pulled straight out of
         // the executor queue, so nothing will ever run to mark it finished. Left
         // alone it would sit at QUEUED forever -- visible to the user as a job
-        // that will not start and that clearQueue() refuses to remove. The
-        // compare-and-set keeps this from stamping on a worker that has just
-        // started; in that case the worker sees the cancel flag and stops itself.
+        // that will not start and that clearQueue() refuses to remove.
+        //
+        // The worker claims a job with the same compare-and-set from QUEUED (see
+        // VideoProcessingService.claimForRunning), so exactly one side wins. If
+        // this cancel wins, a worker already handed the job stands down without
+        // touching it. If the worker wins, it sees the cancel flag and stops.
         if (job != null && job.transitionIf(JobStatus.QUEUED, JobStatus.CANCELLED)) {
             log.info("Job {} cancelled before it started", jobId);
             fanOut(ProgressEvent.status(jobId, JobStatus.CANCELLED));

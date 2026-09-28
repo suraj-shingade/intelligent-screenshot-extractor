@@ -185,13 +185,15 @@ public final class MainFrame extends JFrame {
      * Accept video files dropped anywhere on the window. Dropping a clip onto
      * the app is the shortest path from "I have this video" to "extract it", so
      * it enqueues exactly as the Add Videos dialog does.
+     *
+     * <p>Installed on every component, not just the frame: Swing delivers a drop
+     * to the component under the pointer, and the job table and gallery list
+     * would otherwise refuse it with handlers of their own. Must run after the
+     * window is fully assembled.</p>
      */
     private void installDropTarget() {
-        VideoDropTarget handler = new VideoDropTarget(this::enqueue);
-        setTransferHandler(handler);
-        getRootPane().setTransferHandler(handler);
-        queuePanel.setTransferHandler(handler);
-        galleryPanel.setTransferHandler(handler);
+        setTransferHandler(new VideoDropTarget(this::enqueue));
+        VideoDropTarget.installThroughout(getRootPane(), this::enqueue);
     }
 
     private void addVideos(ActionEvent ignored) {
@@ -205,7 +207,18 @@ public final class MainFrame extends JFrame {
         if (selected == null || selected.length == 0) {
             return;
         }
-        enqueue(List.of(selected));
+        // The extension filter only hides files from view. A typed file name or
+        // the "All Files" filter still returns anything at all, so the choice is
+        // checked against the same rule a drop is.
+        List<File> videos = VideoFiles.collectVideos(List.of(selected));
+        if (videos.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    Messages.get("error.noVideoSelected"),
+                    Messages.get("error.title"),
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        enqueue(videos);
     }
 
     /** Submit one job per file and refresh the queue view once, not per file. */
